@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Return Cam System - Perekam & Return Barang</title>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- html5-qrcode CDN untuk Scan Barcode/QR -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+    <!-- SheetJS CDN untuk Export Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+    <style>
+        @keyframes pulse-red {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(1.1); }
+        }
+        .animate-pulse-rec {
+            animation: pulse-red 1.2s infinite ease-in-out;
+        }
+
+        @keyframes scan-line {
+            0% { top: 0%; }
+            50% { top: 90%; }
+            100% { top: 0%; }
+        }
+        .animate-scan-line {
+            animation: scan-line 2s ease-in-out infinite;
+        }
+
+        #webcamVideo {
+            object-fit: cover;
+            border-radius: 0.75rem;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans antialiased pb-12">
+
+    <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700/60 sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="p-2 bg-indigo-600 rounded-lg text-white shadow-lg shadow-indigo-600/30">
+                    <i data-lucide="package-search" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight text-white flex items-center gap-2">
+                        Return Cam System
+                        <span class="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full font-normal">v2.0</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Smart Unboxing & Return Barcode Record</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2 sm:space-x-3">
+                <button onclick="toggleModalBrand()" class="flex items-center space-x-1.5 text-xs bg-slate-700/80 hover:bg-slate-700 text-indigo-300 px-3 py-2 rounded-lg border border-indigo-500/30 transition shadow-sm">
+                    <i data-lucide="tag" class="w-4 h-4"></i>
+                    <span class="hidden sm:inline font-medium">Kelola Listing Brand</span>
+                </button>
+                <button onclick="toggleModalGuide()" class="flex items-center space-x-1.5 text-xs bg-slate-700/70 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-lg border border-slate-600 transition">
+                    <i data-lucide="help-circle" class="w-4 h-4"></i>
+                    <span class="hidden sm:inline">Panduan Alur Scan</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
+
+        <!-- Toast Notifications Container -->
+        <div id="toastContainer" class="fixed top-20 right-4 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            <!-- Left Panel: Webcam Stream & Controls (7 Cols) -->
+            <div class="lg:col-span-7 bg-slate-800 rounded-2xl p-4 sm:p-5 border border-slate-700/80 shadow-xl flex flex-col justify-between">
+                <div>
+                    <!-- Camera Header Bar -->
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="camera" class="w-5 h-5 text-indigo-400"></i>
+                            <h2 class="font-semibold text-slate-200">Kamera & Scanner Resi</h2>
+                        </div>
+                        
+                        <!-- Status Badges -->
+                        <div class="flex items-center space-x-2">
+                            <!-- Rec Indicator Badge -->
+                            <div id="recBadge" class="hidden flex items-center space-x-1.5 bg-rose-500/20 text-rose-400 border border-rose-500/40 px-2.5 py-1 rounded-full text-xs font-bold animate-pulse">
+                                <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse-rec"></span>
+                                <span>REC ACTIVE</span>
+                            </div>
+
+                            <!-- Motion Status Badge -->
+                            <div id="motionBadge" class="flex items-center space-x-1.5 bg-slate-700 text-slate-300 border border-slate-600 px-2.5 py-1 rounded-full text-xs font-medium">
+                                <span id="motionDot" class="w-2 h-2 rounded-full bg-slate-400"></span>
+                                <span id="motionText">Idle</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Scan Mode Indicator Banner -->
+                    <div id="scanModeBanner" class="mb-3 p-2.5 rounded-xl bg-slate-900/80 border border-indigo-500/30 flex items-center justify-between text-xs">
+                        <div class="flex items-center space-x-2">
+                            <i id="scanStepIcon" data-lucide="qr-code" class="w-4 h-4 text-indigo-400"></i>
+                            <span id="scanStepText" class="text-slate-300 font-medium">Langkah 1: Scan / Input Resi Pertama untuk <strong class="text-indigo-400">MULAI RECORDING</strong></span>
+                        </div>
+                        <span id="activeResiTag" class="hidden font-mono bg-indigo-600 text-white px-2 py-0.5 rounded text-[11px]"></span>
+                    </div>
+
+                    <!-- Camera Viewport Container -->
+                    <div class="relative bg-black rounded-xl overflow-hidden aspect-video flex items-center justify-center border border-slate-700 shadow-inner group">
+                        
+                        <!-- Video Feed -->
+                        <video id="webcamVideo" autoplay playsinline muted class="w-full h-full object-cover"></video>
+                        
+                        <!-- Motion Canvas -->
+                        <canvas id="motionCanvas" class="hidden"></canvas>
+                        
+                        <!-- Embedded QR/Barcode Scanner overlay frame -->
+                        <div id="qrScannerContainer" class="hidden absolute inset-0 bg-black/80 z-20 flex flex-col items-center justify-center p-4">
+                            <div class="w-full max-w-xs bg-slate-900/90 p-3 rounded-xl border border-indigo-500/50 text-center relative shadow-2xl">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span id="scannerTitle" class="text-xs font-semibold text-indigo-400">Pindai Resi Mulai</span>
+                                    <button onclick="stopBarcodeScanner()" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button>
+                                </div>
+                                <div id="reader" class="w-full overflow-hidden rounded-lg bg-black min-h-[180px]"></div>
+                                <p class="text-[11px] text-slate-400 mt-2">Arahkan kamera ke barcode nomor resi</p>
+                            </div>
+                        </div>
+
+                        <!-- Motion Inactivity Countdown Overlay -->
+                        <div id="countdownOverlay" class="hidden absolute bottom-4 right-4 bg-amber-500/90 text-slate-950 font-bold px-3 py-1.5 rounded-lg text-xs backdrop-blur flex items-center space-x-2 shadow-lg animate-bounce z-10">
+                            <i data-lucide="timer" class="w-4 h-4"></i>
+                            <span>Diam Terdeteksi! Auto-stop dalam <span id="countdownText" class="text-sm">3</span>s</span>
+                        </div>
+
+                        <!-- Camera Offline Fallback / Overlay -->
+                        <div id="cameraPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 text-slate-500 p-4 text-center z-10">
+                            <i data-lucide="camera-off" class="w-12 h-12 mb-2 text-slate-600"></i>
+                            <p class="text-sm font-medium text-slate-300">Kamera Belum Aktif</p>
+                            <button onclick="initCamera()" class="mt-3 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg transition shadow-lg flex items-center space-x-2">
+                                <i data-lucide="power" class="w-4 h-4"></i>
+                                <span>Nyalakan Kamera</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Video Control Buttons & Quick Scan Actions -->
+                <div class="mt-4 pt-4 border-t border-slate-700/60 flex flex-wrap gap-2 items-center justify-between">
+                    <div class="flex items-center space-x-2">
+                        <button id="btnScanAction" onclick="startBarcodeScanner()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow">
+                            <i data-lucide="scan" class="w-4 h-4"></i>
+                            <span id="btnScanActionText">Buka Scanner Kamera</span>
+                        </button>
+
+                        <button id="btnManualStart" onclick="manualStartRecord()" disabled class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition">
+                            <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
+                            <span>Mulai Manual</span>
+                        </button>
+                        
+                        <button id="btnManualStop" onclick="manualStopRecord()" disabled class="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition">
+                            <i data-lucide="square" class="w-3.5 h-3.5 fill-current"></i>
+                            <span>Stop & Save</span>
+                        </button>
+                    </div>
+
+                    <div class="text-[11px] text-slate-400">
+                        Format nama file: <span class="font-mono text-indigo-300 font-semibold">YYYY-MM-DD - Brand - Resi.webm</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-5 bg-slate-800 rounded-2xl p-4 sm:p-5 border border-slate-700/80 shadow-xl flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="file-input" class="w-5 h-5 text-indigo-400"></i>
+                            <h2 class="font-semibold text-slate-200">Form Input & Scan Return</h2>
+                        </div>
+                        <span class="text-[11px] bg-slate-700 text-slate-300 px-2 py-0.5 rounded border border-slate-600">Scan Controlled</span>
+                    </div>
+
+                    <form id="returnForm" onsubmit="handleFormSubmit(event)" class="space-y-4">
+                        
+                        <!-- Pilih Brand -->
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-xs font-medium text-slate-300">Pilih Brand / Toko <span class="text-rose-400">*</span></label>
+                                <button type="button" onclick="toggleModalBrand()" class="text-[11px] text-indigo-400 hover:underline flex items-center space-x-1">
+                                    <i data-lucide="plus-circle" class="w-3 h-3"></i>
+                                    <span>Tambah Brand</span>
+                                </button>
+                            </div>
+                            <select id="inputBrand" required class="w-full bg-slate-900/90 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 transition">
+                                <!-- Dynamic Options -->
+                            </select>
+                        </div>
+
+                        <!-- No Order / Resi dengan Tombol Trigger Scan -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">No. Order / Resi Barcode <span class="text-rose-400">*</span></label>
+                            <div class="flex space-x-2">
+                                <div class="relative flex-1">
+                                    <input type="text" id="inputResi" required placeholder="Contoh: JP1234567890" 
+                                           oninput="handleResiInputChange(this.value)"
+                                           class="w-full bg-slate-900/90 border border-slate-700 rounded-lg pl-3 pr-8 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 transition font-mono uppercase">
+                                    <button type="button" onclick="clearResi()" class="absolute right-2.5 top-2.5 text-slate-500 hover:text-slate-300">
+                                        <i data-lucide="x-circle" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                                <button type="button" id="btnFormScanTrigger" onclick="triggerScanFromForm()" class="px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-medium flex items-center space-x-1.5 transition shrink-0">
+                                    <i data-lucide="qr-code" class="w-4 h-4"></i>
+                                    <span id="btnFormScanText">Scan Resi</span>
+                                </button>
+                            </div>
+                            <p id="resiHelpText" class="text-[11px] text-slate-400 mt-1">Tekan Enter atau klik Scan untuk memulai perekaman.</p>
+                        </div>
+
+                        <!-- Tanggal & Waktu Auto -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">Tanggal & Waktu Input (Auto)</label>
+                            <div class="relative">
+                                <input type="text" id="inputTimestamp" readonly class="w-full bg-slate-900/50 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-400 cursor-not-allowed">
+                                <i data-lucide="calendar" class="w-4 h-4 absolute right-3 top-2.5 text-slate-500"></i>
+                            </div>
+                        </div>
+
+                        <!-- Kondisi Barang (Radio Options) -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1.5">Kondisi Fisik Barang <span class="text-rose-400">*</span></label>
+                            <div class="grid grid-cols-2 gap-3">
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="kondisi" value="Baik" checked class="peer sr-only">
+                                    <div class="flex items-center justify-center space-x-2 border border-slate-700 bg-slate-900/60 p-2 rounded-lg text-xs font-medium text-slate-400 peer-checked:border-emerald-500 peer-checked:bg-emerald-500/10 peer-checked:text-emerald-400 transition">
+                                        <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+                                        <span>Kondisi Baik</span>
+                                    </div>
+                                </label>
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="kondisi" value="Rusak" class="peer sr-only">
+                                    <div class="flex items-center justify-center space-x-2 border border-slate-700 bg-slate-900/60 p-2 rounded-lg text-xs font-medium text-slate-400 peer-checked:border-rose-500 peer-checked:bg-rose-500/10 peer-checked:text-rose-400 transition">
+                                        <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+                                        <span>Kondisi Rusak</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Catatan Defect -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">Catatan / Detail Defect (Opsional)</label>
+                            <textarea id="inputCatatan" rows="2" placeholder="Detail keterangan barang return..." class="w-full bg-slate-900/90 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 transition"></textarea>
+                        </div>
+
+                        <!-- Submit Data -->
+                        <div class="pt-1">
+                            <button type="submit" id="btnSaveData" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold text-sm transition shadow-lg flex items-center justify-center space-x-2">
+                                <i data-lucide="save" class="w-4 h-4"></i>
+                                <span>Simpan Data Ke Tabel</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-slate-800 rounded-2xl p-4 sm:p-5 border border-slate-700/80 shadow-xl space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="flex items-center space-x-2">
+                    <i data-lucide="history" class="w-5 h-5 text-indigo-400"></i>
+                    <h2 class="font-semibold text-slate-200">Riwayat Data Return</h2>
+                    <span id="recordCountBadge" class="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs px-2 py-0.5 rounded-full font-semibold">0 Data</span>
+                </div>
+
+                <div class="flex items-center space-x-2">
+                    <button onclick="exportToExcel()" class="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow">
+                        <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                        <span>Export Excel (.xlsx)</span>
+                    </button>
+                    <button onclick="clearAllData()" class="px-3 py-2 bg-slate-700 hover:bg-rose-900/40 hover:text-rose-300 text-slate-300 rounded-lg text-xs font-medium transition border border-slate-600">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Data Table -->
+            <div class="overflow-x-auto rounded-xl border border-slate-700">
+                <table class="w-full text-left text-xs text-slate-300">
+                    <thead class="bg-slate-900/80 text-slate-400 uppercase font-semibold border-b border-slate-700">
+                        <tr>
+                            <th class="px-4 py-3">No</th>
+                            <th class="px-4 py-3">Waktu Input</th>
+                            <th class="px-4 py-3">Brand</th>
+                            <th class="px-4 py-3">No. Order / Resi</th>
+                            <th class="px-4 py-3">Kondisi</th>
+                            <th class="px-4 py-3">Nama File Video (.webm)</th>
+                            <th class="px-4 py-3">Catatan</th>
+                            <th class="px-4 py-3 text-right">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTableBody" class="divide-y divide-slate-700/60 bg-slate-800/40">
+                        <!-- Dynamic Rows -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <div id="brandModal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-5 shadow-2xl relative">
+            <button onclick="toggleModalBrand()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-200">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+            <div class="flex items-center space-x-3 mb-4">
+                <div class="p-2 bg-indigo-600/20 text-indigo-400 rounded-lg">
+                    <i data-lucide="tag" class="w-5 h-5"></i>
+                </div>
+                <h3 class="text-base font-bold text-white">Kelola Listing Brand</h3>
+            </div>
+
+            <!-- Input Tambah Brand Baru -->
+            <div class="flex space-x-2 mb-4">
+                <input type="text" id="newBrandInput" placeholder="Masukkan nama brand baru..." class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                <button onclick="addNewBrand()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shrink-0 flex items-center space-x-1">
+                    <i data-lucide="plus" class="w-4 h-4"></i>
+                    <span>Tambah</span>
+                </button>
+            </div>
+
+            <!-- List Brand Yang Tersedia -->
+            <div class="max-h-60 overflow-y-auto space-y-1.5 pr-1" id="brandListContainer">
+                <!-- Dynamic Listing -->
+            </div>
+
+            <div class="mt-5 pt-3 border-t border-slate-700 flex justify-between items-center text-[11px] text-slate-400">
+                <span>Total Listing: <strong id="totalBrandCount" class="text-indigo-400">0</strong></span>
+                <button onclick="resetBrandsToDefault()" class="text-slate-400 hover:text-rose-400 underline">Reset ke Default</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="guideModal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
+            <button onclick="toggleModalGuide()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-200">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+            <div class="flex items-center space-x-3 mb-4">
+                <div class="p-2 bg-indigo-600/20 text-indigo-400 rounded-lg">
+                    <i data-lucide="book-open" class="w-6 h-6"></i>
+                </div>
+                <h3 class="text-lg font-bold text-white">Alur Scan Resi Start & Stop Video</h3>
+            </div>
+            <div class="space-y-3 text-xs text-slate-300 leading-relaxed">
+                <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-700/60">
+                    <strong class="text-indigo-400 block mb-1">1. Scan Pertama (START):</strong>
+                    Arahkan scanner ke resi barcode pertama kali. Video rekam secara otomatis dimulai (<span class="text-rose-400 font-bold">REC ACTIVE</span>) dan nomor resi terkunci.
+                </div>
+                <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-700/60">
+                    <strong class="text-indigo-400 block mb-1">2. Perekaman Unboxing / Cek Barang:</strong>
+                    Tunjukkan proses cek barang return di hadapan kamera.
+                </div>
+                <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-700/60">
+                    <strong class="text-indigo-400 block mb-1">3. Scan Kedua (STOP & AUTO-SAVE):</strong>
+                    Scan kembali resi barcode tersebut (atau klik Stop). Video rekam dihentikan secara otomatis dan mengunduh berkas dengan nama format:
+                    <div class="mt-1 font-mono text-[11px] text-emerald-400 bg-slate-950 p-1.5 rounded border border-emerald-500/30">
+                        YYYY-MM-DD - [Nama Brand] - [No Resi].webm
+                    </div>
+                </div>
+                <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-700/60">
+                    <strong class="text-indigo-400 block mb-1">4. Auto-Stop Pergerakan (Fallback):</strong>
+                    Jika barang diletakkan & tidak ada gerakan di kamera selama 3 detik, sistem juga akan menghentikan rekaman dan menyimpan file secara otomatis.
+                </div>
+            </div>
+            <div class="mt-6 text-right">
+                <button onclick="toggleModalGuide()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold">Saya Mengerti</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Default Brands List
+        const DEFAULT_BRANDS = ["Nike", "Adidas", "Uniqlo", "Puma", "Zara", "Erigo", "Lainnya / Generic"];
+
+        // Application State
+        let videoStream = null;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let isRecording = false;
+        
+        // Scan State Machine
+        let activeSessionResi = ""; 
+        let currentRecordedFileName = "";
+
+        // Motion detection parameters
+        let motionCanvas = null;
+        let motionCtx = null;
+        let prevFrameData = null;
+        let motionCheckInterval = null;
+        let countdownValue = 3;
+        let countdownInterval = null;
+        const MOTION_THRESHOLD = 22;
+        const MOTION_PIXEL_RATIO = 0.02;
+
+        // Barcode Scanner Instance
+        let html5QrCode = null;
+
+        // On Load Initializer
+        window.onload = () => {
+            lucide.createIcons();
+            updateLiveTimestamp();
+            setInterval(updateLiveTimestamp, 1000);
+
+            motionCanvas = document.getElementById('motionCanvas');
+            motionCtx = motionCanvas.getContext('2d', { willReadFrequently: true });
+
+            initBrandList();
+            renderHistoryTable();
+            initCamera();
+        };
+
+        function getSavedBrands() {
+            const stored = localStorage.getItem('return_cam_brands');
+            return stored ? JSON.parse(stored) : DEFAULT_BRANDS;
+        }
+
+        function saveBrands(brands) {
+            localStorage.setItem('return_cam_brands', JSON.stringify(brands));
+            initBrandList();
+        }
+
+        function initBrandList() {
+            const brands = getSavedBrands();
+            const selectEl = document.getElementById('inputBrand');
+            const containerEl = document.getElementById('brandListContainer');
+            const totalEl = document.getElementById('totalBrandCount');
+
+            const currentVal = selectEl.value;
+
+            // Populate Dropdown
+            selectEl.innerHTML = '<option value="" disabled selected>-- Pilih Brand / Toko --</option>';
+            brands.forEach(b => {
+                const opt = document.createElement('option');
+                opt.value = b;
+                opt.textContent = b;
+                selectEl.appendChild(opt);
+            });
+
+            if (currentVal && brands.includes(currentVal)) {
+                selectEl.value = currentVal;
+            } else if (brands.length > 0) {
+                selectEl.value = brands[0];
+            }
+
+            // Populate Modal List
+            containerEl.innerHTML = brands.map((b, idx) => `
+                <div class="flex items-center justify-between p-2 bg-slate-900 rounded-lg border border-slate-700/60 text-xs">
+                    <span class="font-medium text-slate-200">${b}</span>
+                    <button onclick="removeBrand(${idx})" class="text-slate-500 hover:text-rose-400 p-1">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+            `).join('');
+
+            totalEl.innerText = brands.length;
+            lucide.createIcons();
+        }
+
+        function addNewBrand() {
+            const input = document.getElementById('newBrandInput');
+            const val = input.value.trim();
+            if (!val) return;
+
+            const brands = getSavedBrands();
+            if (brands.some(b => b.toLowerCase() === val.toLowerCase())) {
+                showToast('Brand sudah ada dalam daftar', 'warning');
+                return;
+            }
+
+            brands.push(val);
+            saveBrands(brands);
+            input.value = '';
+            showToast(`Brand "${val}" berhasil ditambahkan`, 'success');
+        }
+
+        function removeBrand(index) {
+            const brands = getSavedBrands();
+            if (brands.length <= 1) {
+                showToast('Sistem memerlukan minimal 1 brand', 'warning');
+                return;
+            }
+            const removed = brands.splice(index, 1);
+            saveBrands(brands);
+            showToast(`Brand "${removed[0]}" dihapus`, 'info');
+        }
+
+        function resetBrandsToDefault() {
+            if (confirm('Kembalikan daftar brand ke setting awal?')) {
+                saveBrands(DEFAULT_BRANDS);
+                showToast('Listing brand berhasil direset', 'info');
+            }
+        }
+
+        function toggleModalBrand() {
+            document.getElementById('brandModal').classList.toggle('hidden');
+        }
+
+        function toggleModalGuide() {
+            document.getElementById('guideModal').classList.toggle('hidden');
+        }
+
+        function updateLiveTimestamp() {
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('id-ID', {
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+            document.getElementById('inputTimestamp').value = dateStr;
+        }
+
+        async function initCamera() {
+            try {
+                const constraints = {
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "environment" },
+                    audio: false
+                };
+                videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+                const videoElement = document.getElementById('webcamVideo');
+                videoElement.srcObject = videoStream;
+
+                document.getElementById('cameraPlaceholder').classList.add('hidden');
+                document.getElementById('btnManualStart').disabled = false;
+
+                showToast('Kamera aktif', 'success');
+            } catch (err) {
+                console.error("Gagal kamera:", err);
+                showToast('Gagal mengakses webcam. Berikan izin di browser.', 'error');
+            }
+        }
+
+        // START RECORDING
+        function startRecording(resiCode) {
+            if (!videoStream || isRecording) return;
+
+            activeSessionResi = resiCode || document.getElementById('inputResi').value.trim() || 'NO-RESI';
+            document.getElementById('inputResi').value = activeSessionResi;
+
+            recordedChunks = [];
+            let options = { mimeType: 'video/webm;codecs=vp9' };
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                options = { mimeType: 'video/webm' };
+            }
+
+            try {
+                mediaRecorder = new MediaRecorder(videoStream, options);
+            } catch (e) {
+                mediaRecorder = new MediaRecorder(videoStream);
+            }
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    recordedChunks.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = saveVideoFile;
+
+            mediaRecorder.start(200);
+            isRecording = true;
+
+            // UI State updates for recording active
+            document.getElementById('recBadge').classList.remove('hidden');
+            document.getElementById('btnManualStart').disabled = true;
+            document.getElementById('btnManualStop').disabled = false;
+
+            // Update Scan Banner
+            document.getElementById('scanStepIcon').setAttribute('data-lucide', 'square');
+            document.getElementById('scanStepText').innerHTML = 'Langkah 2: Scan Resi lagi / Klik Stop untuk <strong class="text-rose-400">STOP & AUTO SAVE</strong>';
+            document.getElementById('activeResiTag').innerText = `Active: ${activeSessionResi}`;
+            document.getElementById('activeResiTag').classList.remove('hidden');
+            document.getElementById('btnScanActionText').innerText = 'Scan untuk STOP Video';
+
+            startMotionDetection();
+            lucide.createIcons();
+            showToast(`Mulai Merekam Resi: ${activeSessionResi}`, 'info');
+        }
+
+        // STOP RECORDING
+        function stopRecording() {
+            if (!isRecording) return;
+
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+
+            isRecording = false;
+
+            // UI State Reset
+            document.getElementById('recBadge').classList.add('hidden');
+            document.getElementById('btnManualStart').disabled = false;
+            document.getElementById('btnManualStop').disabled = true;
+
+            document.getElementById('scanStepIcon').setAttribute('data-lucide', 'qr-code');
+            document.getElementById('scanStepText').innerHTML = 'Langkah 1: Scan / Input Resi Pertama untuk <strong class="text-indigo-400">MULAI RECORDING</strong>';
+            document.getElementById('activeResiTag').classList.add('hidden');
+            document.getElementById('btnScanActionText').innerText = 'Buka Scanner Kamera';
+
+            stopMotionDetection();
+            resetInactivityCountdown();
+            lucide.createIcons();
+        }
+
+        function manualStartRecord() {
+            const resi = document.getElementById('inputResi').value.trim();
+            if (!resi) {
+                showToast('Isi No Resi terlebih dahulu', 'warning');
+                return;
+            }
+            startRecording(resi);
+        }
+
+        function manualStopRecord() {
+            stopRecording();
+        }
+
+        // Save File Format: "YYYY-MM-DD - Brand - Resi.webm"
+        function saveVideoFile() {
+            if (recordedChunks.length === 0) return;
+
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            const brand = document.getElementById('inputBrand').value || 'BRAND';
+            const resi = activeSessionResi || document.getElementById('inputResi').value.trim() || 'NO-RESI';
+            
+            // Format YYYY-MM-DD
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const dateFormatted = `${year}-${month}-${day}`;
+
+            // Clean special chars for file system safety
+            const cleanBrand = brand.replace(/[/\\?%*:|"<>]/g, '-');
+            const cleanResi = resi.replace(/[/\\?%*:|"<>]/g, '-');
+
+            const fileName = `${dateFormatted} - ${cleanBrand} - ${cleanResi}.webm`;
+            currentRecordedFileName = fileName;
+
+            // Auto Download Link
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }, 100);
+
+            showToast(`Video otomatis disimpan: ${fileName}`, 'success');
+        }
+
+        function handleScannedCode(code) {
+            const trimmed = code.trim().toUpperCase();
+            if (!trimmed) return;
+
+            if (!isRecording) {
+                // FIRST SCAN -> START RECORDING
+                document.getElementById('inputResi').value = trimmed;
+                startRecording(trimmed);
+            } else {
+                // SECOND SCAN -> STOP RECORDING & SAVE
+                showToast(`Scan kedua terdeteksi (${trimmed}). Menghentikan & menyimpan...`, 'success');
+                stopRecording();
+            }
+        }
+
+        function handleResiInputChange(val) {
+            // Manual typing helper
+        }
+
+        function triggerScanFromForm() {
+            startBarcodeScanner();
+        }
+
+        function clearResi() {
+            document.getElementById('inputResi').value = '';
+            if (isRecording) {
+                stopRecording();
+            }
+        }
+
+        function startBarcodeScanner() {
+            const container = document.getElementById('qrScannerContainer');
+            container.classList.remove('hidden');
+
+            const titleEl = document.getElementById('scannerTitle');
+            titleEl.innerText = isRecording ? "Pindai Resi untuk STOP & SAVE" : "Pindai Resi untuk MULAI";
+
+            html5QrCode = new Html5Qrcode("reader");
+            const config = { fps: 12, qrbox: { width: 220, height: 140 } };
+
+            html5QrCode.start(
+                { facingMode: "environment" },
+                config,
+                (decodedText) => {
+                    handleScannedCode(decodedText);
+                    stopBarcodeScanner();
+                },
+                (errorMessage) => {
+                    // scanning...
+                }
+            ).catch(err => {
+                console.error("Scanner Error:", err);
+                showToast("Gagal mengaktifkan kamera scanner", "error");
+                stopBarcodeScanner();
+            });
+        }
+
+        function stopBarcodeScanner() {
+            if (html5QrCode) {
+                html5QrCode.stop().then(() => {
+                    html5QrCode.clear();
+                    document.getElementById('qrScannerContainer').classList.add('hidden');
+                }).catch(() => {
+                    document.getElementById('qrScannerContainer').classList.add('hidden');
+                });
+            } else {
+                document.getElementById('qrScannerContainer').classList.add('hidden');
+            }
+        }
+
+        function startMotionDetection() {
+            const video = document.getElementById('webcamVideo');
+            motionCanvas.width = 160;
+            motionCanvas.height = 90;
+
+            prevFrameData = null;
+            resetInactivityCountdown();
+
+            motionCheckInterval = setInterval(() => {
+                if (!isRecording) return;
+
+                motionCtx.drawImage(video, 0, 0, motionCanvas.width, motionCanvas.height);
+                const currentFrame = motionCtx.getImageData(0, 0, motionCanvas.width, motionCanvas.height);
+                
+                if (prevFrameData) {
+                    const hasMotion = detectPixelDifference(prevFrameData.data, currentFrame.data);
+                    
+                    if (hasMotion) {
+                        updateMotionUI(true);
+                        resetInactivityCountdown();
+                    } else {
+                        updateMotionUI(false);
+                        startInactivityCountdownIfNeeded();
+                    }
+                }
+                prevFrameData = currentFrame;
+            }, 300);
+        }
+
+        function stopMotionDetection() {
+            if (motionCheckInterval) clearInterval(motionCheckInterval);
+            if (countdownInterval) clearInterval(countdownInterval);
+            updateMotionUI(false);
+            document.getElementById('countdownOverlay').classList.add('hidden');
+        }
+
+        function detectPixelDifference(pixels1, pixels2) {
+            let changedPixels = 0;
+            const totalPixels = pixels1.length / 4;
+
+            for (let i = 0; i < pixels1.length; i += 4) {
+                const rDiff = Math.abs(pixels1[i] - pixels2[i]);
+                const gDiff = Math.abs(pixels1[i+1] - pixels2[i+1]);
+                const bDiff = Math.abs(pixels1[i+2] - pixels2[i+2]);
+
+                if ((rDiff + gDiff + bDiff) / 3 > MOTION_THRESHOLD) {
+                    changedPixels++;
+                }
+            }
+
+            const motionRatio = changedPixels / totalPixels;
+            return motionRatio > MOTION_PIXEL_RATIO;
+        }
+
+        function updateMotionUI(isMoving) {
+            const dot = document.getElementById('motionDot');
+            const text = document.getElementById('motionText');
+
+            if (isMoving) {
+                dot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-ping";
+                text.innerText = "Ada Pergerakan";
+                text.className = "text-emerald-400 font-medium";
+            } else {
+                dot.className = "w-2 h-2 rounded-full bg-amber-400";
+                text.innerText = "Tidak Bergerak";
+                text.className = "text-amber-400 font-medium";
+            }
+        }
+
+        function startInactivityCountdownIfNeeded() {
+            if (countdownInterval) return;
+
+            countdownValue = 3;
+            document.getElementById('countdownText').innerText = countdownValue;
+            document.getElementById('countdownOverlay').classList.remove('hidden');
+
+            countdownInterval = setInterval(() => {
+                countdownValue -= 1;
+                document.getElementById('countdownText').innerText = countdownValue;
+
+                if (countdownValue <= 0) {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                    document.getElementById('countdownOverlay').classList.add('hidden');
+                    
+                    showToast('Auto Stop: Tidak ada gerakan selama 3 detik', 'warning');
+                    stopRecording();
+                }
+            }, 1000);
+        }
+
+        function resetInactivityCountdown() {
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+                countdownInterval = null;
+            }
+            document.getElementById('countdownOverlay').classList.add('hidden');
+        }
+
+        function handleFormSubmit(e) {
+            e.preventDefault();
+
+            const brand = document.getElementById('inputBrand').value;
+            const resi = document.getElementById('inputResi').value.trim();
+            const timestamp = document.getElementById('inputTimestamp').value;
+            const kondisi = document.querySelector('input[name="kondisi"]:checked').value;
+            const catatan = document.getElementById('inputCatatan').value.trim() || '-';
+
+            if (!brand || !resi) {
+                showToast('Mohon lengkapi Brand dan No. Resi', 'error');
+                return;
+            }
+
+            if (isRecording) {
+                stopRecording();
+            }
+
+            const record = {
+                id: Date.now(),
+                timestamp,
+                brand,
+                resi,
+                kondisi,
+                catatan,
+                videoFile: currentRecordedFileName || "Manual / Tidak Ada Video"
+            };
+
+            const history = getStoredHistory();
+            history.unshift(record);
+            localStorage.setItem('return_data_history', JSON.stringify(history));
+
+            renderHistoryTable();
+            showToast('Data Return Berhasil Disimpan ke Tabel!', 'success');
+
+            // Form Reset
+            document.getElementById('inputResi').value = '';
+            document.getElementById('inputCatatan').value = '';
+            currentRecordedFileName = "";
+            activeSessionResi = "";
+        }
+
+        function getStoredHistory() {
+            const data = localStorage.getItem('return_data_history');
+            return data ? JSON.parse(data) : [];
+        }
+
+        function renderHistoryTable() {
+            const history = getStoredHistory();
+            const tbody = document.getElementById('historyTableBody');
+            document.getElementById('recordCountBadge').innerText = `${history.length} Data`;
+
+            if (history.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="px-4 py-8 text-center text-slate-500 italic">
+                            Belum ada riwayat data return terdaftar.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = history.map((item, index) => {
+                const isGood = item.kondisi === 'Baik';
+                return `
+                    <tr class="hover:bg-slate-700/30 transition">
+                        <td class="px-4 py-3 text-slate-400">${index + 1}</td>
+                        <td class="px-4 py-3 font-mono text-[11px] text-slate-300">${item.timestamp}</td>
+                        <td class="px-4 py-3 font-semibold text-white">${item.brand}</td>
+                        <td class="px-4 py-3 font-mono font-bold text-indigo-300">${item.resi}</td>
+                        <td class="px-4 py-3">
+                            <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${isGood ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'}">
+                                ${isGood ? '<i data-lucide="check" class="w-3 h-3"></i>' : '<i data-lucide="x" class="w-3 h-3"></i>'}
+                                <span>${item.kondisi}</span>
+                            </span>
+                        </td>
+                        <td class="px-4 py-3 font-mono text-[11px] text-emerald-400">
+                            ${item.videoFile}
+                        </td>
+                        <td class="px-4 py-3 text-slate-400 max-w-xs truncate">${item.catatan}</td>
+                        <td class="px-4 py-3 text-right">
+                            <button onclick="deleteRecord(${item.id})" class="text-slate-500 hover:text-rose-400 transition">
+                                <i data-lucide="trash" class="w-4 h-4"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            lucide.createIcons();
+        }
+
+        function deleteRecord(id) {
+            let history = getStoredHistory();
+            history = history.filter(item => item.id !== id);
+            localStorage.setItem('return_data_history', JSON.stringify(history));
+            renderHistoryTable();
+            showToast('Data berhasil dihapus', 'info');
+        }
+
+        function clearAllData() {
+            if (confirm('Apakah Anda yakin ingin menghapus SELURUH riwayat data return?')) {
+                localStorage.removeItem('return_data_history');
+                renderHistoryTable();
+                showToast('Seluruh riwayat dibersihkan', 'warning');
+            }
+        }
+
+        // Export Excel SheetJS
+        function exportToExcel() {
+            const history = getStoredHistory();
+            if (history.length === 0) {
+                showToast('Tidak ada data untuk diexport', 'warning');
+                return;
+            }
+
+            const excelData = history.map((item, index) => ({
+                "No": index + 1,
+                "Waktu Input": item.timestamp,
+                "Nama Brand": item.brand,
+                "No Order / Resi": item.resi,
+                "Kondisi Barang": item.kondisi,
+                "Nama File Video (.webm)": item.videoFile,
+                "Catatan": item.catatan
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(excelData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Data Return");
+
+            worksheet['!cols'] = [
+                { wch: 5 },  // No
+                { wch: 22 }, // Waktu
+                { wch: 15 }, // Brand
+                { wch: 20 }, // Resi
+                { wch: 15 }, // Kondisi
+                { wch: 40 }, // File Video
+                { wch: 30 }  // Catatan
+            ];
+
+            const today = new Date().toISOString().split('T')[0];
+            XLSX.writeFile(workbook, `Laporan_Return_Barang_${today}.xlsx`);
+            showToast('File Excel berhasil diunduh!', 'success');
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+
+            let bgColors = 'bg-slate-800 border-slate-700 text-slate-200';
+            let icon = 'info';
+
+            if (type === 'success') {
+                bgColors = 'bg-emerald-900/90 border-emerald-500 text-emerald-100';
+                icon = 'check-circle';
+            } else if (type === 'error') {
+                bgColors = 'bg-rose-900/90 border-rose-500 text-rose-100';
+                icon = 'alert-circle';
+            } else if (type === 'warning') {
+                bgColors = 'bg-amber-900/90 border-amber-500 text-amber-100';
+                icon = 'alert-triangle';
+            }
+
+            toast.className = `flex items-center space-x-2 border px-4 py-2.5 rounded-xl text-xs shadow-2xl backdrop-blur transition-all duration-200 pointer-events-auto transform translate-x-5 opacity-0 ${bgColors}`;
+            toast.innerHTML = `<i data-lucide="${icon}" class="w-4 h-4 shrink-0"></i><span>${message}</span>`;
+
+            container.appendChild(toast);
+            lucide.createIcons();
+
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-x-5', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-x-5');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+    </script>
+</body>
+</html>
